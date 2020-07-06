@@ -94,13 +94,30 @@ pub async fn receive(url: &str) -> anyhow::Result<()> {
 
     let mut stdout = tokio::io::stdout();
 
-    loop {
+    'l: loop {
         for r in &mut receivers {
             if let Some(bytes) = r.recv().await {
                 stdout.write_all(&bytes).await?;
             } else {
-                return Ok(());
+                break 'l;
             }
         }
     }
+
+    loop {
+        match Client::new()
+            .get(url)
+            .header(headers::RESET, 0)
+            .send()
+            .await
+        {
+            Ok(_) => break,
+            Err(e) => {
+                debug!("http error: {}", e);
+                tokio::time::delay_for(Duration::from_secs(3)).await;
+            }
+        }
+    }
+
+    Ok(())
 }

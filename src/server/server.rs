@@ -146,6 +146,12 @@ async fn send(
     match (move || async move {
         let path = path.into_inner();
 
+        if let Some(_) = req.headers().get(headers::RESET) {
+            data.endpoints.lock().unwrap().remove(&path);
+            debug!("FIN {:?}", path);
+            return Ok(HttpResponse::Ok().finish());
+        }
+
         debug!("GET {:?}", path);
 
         let queue = if let Some(conn) = data.endpoints.lock().unwrap().get(&path) {
