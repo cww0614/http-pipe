@@ -1,0 +1,30 @@
+[package]
+name = "http-pipe"
+version = "0.1.0"
+authors = ["chrisww <chrisww@live.com>"]
+edition = "2018"
+
+[profile.release]
+lto = true
+
+[dependencies]
+tokio = { version = "0.2", features = ["full"] }
+reqwest = "0.10"
+actix-web = "2.0"
+actix-rt = "1.0"
+atty = "0.2"
+anyhow = "1.0"
+log = "0.4"
+simplelog = "0.8"
+pin-project= "*"
+bytes = "0.5"
+futures = "0.3"
+clap = "3.0.0-beta.1"       
+
+[[bin]]
+name = "http-pipe"
+path = "src/client/client.rs"
+
+[[bin]]
+name = "http-pipe-server"
+path = "src/server/server.rs"
