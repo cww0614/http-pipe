@@ -49,7 +49,7 @@ impl Worker {
         }
     }
 
-    async fn send(&self, packet: &Packet) -> anyhow::Result<()> {
+    async fn send(&mut self, packet: &Packet) -> anyhow::Result<()> {
         let resp = self
             .client
             .put(&self.url)
@@ -61,6 +61,8 @@ impl Worker {
 
         let status = resp.status();
         if !status.is_success() {
+            // prevent poisoned connection from being reused
+            self.client = Client::new();
             bail!("server returned failure status: {:?}", status);
         }
 

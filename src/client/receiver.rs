@@ -64,7 +64,7 @@ impl Worker {
         }
     }
 
-    async fn receive(&self, ack: Option<u64>) -> anyhow::Result<Bytes> {
+    async fn receive(&mut self, ack: Option<u64>) -> anyhow::Result<Bytes> {
         let mut r = self.client.get(&self.url);
 
         if let Some(ack) = ack {
@@ -75,6 +75,8 @@ impl Worker {
 
         let status = resp.status();
         if !status.is_success() {
+            // prevent poisoned connection from being reused
+            self.client = Client::new();
             bail!("server returned failure status: {:?}", status);
         }
 
