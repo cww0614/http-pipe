@@ -10,7 +10,7 @@ lto = true
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
 reqwest = "0.10"
-actix-web = "2.0"
+actix-web = "3.0"
 actix-rt = "1.0"
 atty = "0.2"
 anyhow = "1.0"
