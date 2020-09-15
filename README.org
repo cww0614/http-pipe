@@ -1,0 +1,28 @@
+* Http Pipe
+
+Piping data from one host to another using a relay server
+
+** Features
+
+- Multithreaded transmission
+- Automatically recover from network failures
+
+** Usage
+
+*** Server
+
+Use docker:
+
+#+BEGIN_SRC shell
+docker run -p 80:8080 cww0614/http-pipe
+#+END_SRC
+
+*** Client
+
+#+BEGIN_SRC shell
+# Sending
+echo 123 | http-pipe http://example.com/endpoint
+
+# Receiving
+http-pipe http://example.com/endpoint > output.txt
+#+END_SRC
