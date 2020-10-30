@@ -1,18 +1,52 @@
-mod queue;
-
-use actix_web::{get, put, web, App, HttpRequest, HttpResponse, HttpServer};
-use anyhow::anyhow;
-use bytes::BytesMut;
-use clap::{crate_version, Clap};
-use futures::stream::StreamExt;
-use http_pipe::common::{headers, Packet};
-use log::{debug, warn};
-use queue::Queue;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use std::str::FromStr;
+
+use actix_web::{App, get, HttpRequest, HttpResponse, HttpServer, put, web};
+use actix_web::error::{
+    ErrorBadRequest, ErrorGone, ErrorInternalServerError, ErrorPreconditionFailed,
+};
+use anyhow::anyhow;
+use bytes::BytesMut;
+use clap::{Clap, crate_version};
+use futures::stream::StreamExt;
+use log::debug;
 use tokio::sync::mpsc::{self, Sender};
+
+use http_pipe::common::{headers, Packet};
+use queue::Queue;
+
+mod queue;
+
+#[derive(Debug, thiserror::Error)]
+enum ControllerError {
+    #[error(transparent)]
+    Actix(#[from] actix_web::error::Error),
+    #[error("Missing required fields: {0}")]
+    MissingRequiredFields(String),
+    #[error("Failed to decode value: {0}")]
+    Decode(#[from] actix_web::http::header::ToStrError),
+    #[error("Failed to parse integer: {0}")]
+    IntegerParse(#[from] std::num::ParseIntError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+type ControllerResult<T> = Result<T, ControllerError>;
+
+impl From<ControllerError> for actix_web::error::Error {
+    fn from(e: ControllerError) -> actix_web::error::Error {
+        match e {
+            ControllerError::Actix(inner) => inner,
+            ControllerError::MissingRequiredFields(_)
+            | ControllerError::Decode(_)
+            | ControllerError::IntegerParse(_) => ErrorBadRequest(e),
+            _ => ErrorInternalServerError(e),
+        }
+    }
+}
 
 struct AppState {
     endpoints: Mutex<HashMap<String, Conn>>,
@@ -70,71 +104,66 @@ impl Conn {
     }
 }
 
+fn parse_from_header<T>(req: &HttpRequest, name: &str) -> ControllerResult<T>
+    where
+        T: FromStr,
+        ControllerError: From<T::Err>,
+{
+    Ok(req
+        .headers()
+        .get(name)
+        .ok_or_else(|| ControllerError::MissingRequiredFields(name.into()))?
+        .to_str()?
+        .parse()?)
+}
+
 #[put("/{id}")]
 async fn recv(
     data: web::Data<AppState>,
     path: web::Path<String>,
     req: HttpRequest,
     mut body: web::Payload,
-) -> HttpResponse {
-    match (move || async move {
-        let path = path.into_inner();
+) -> ControllerResult<HttpResponse> {
+    let path = path.into_inner();
 
-        if let Some(worker_num) = req.headers().get(headers::RESET) {
-            debug!("RESET {:?}", path);
+    if let Some(worker_num) = req.headers().get(headers::RESET) {
+        debug!("RESET {:?}", path);
 
-            data.endpoints
-                .lock()
-                .unwrap()
-                .insert(path, Conn::new(worker_num.to_str()?.parse()?));
+        data.endpoints
+            .lock()
+            .unwrap()
+            .insert(path, Conn::new(worker_num.to_str()?.parse()?));
 
-            return Ok(HttpResponse::Ok().finish());
-        }
-
-        debug!("PUT {:?}", path);
-
-        let worker_index: usize = if let Some(worker_index) = req.headers().get(headers::WORKER) {
-            worker_index.to_str()?.parse()?
-        } else {
-            return Ok(HttpResponse::BadRequest().finish());
-        };
-
-        let data_index = if let Some(data_index) = req.headers().get(headers::INDEX) {
-            data_index.to_str()?.parse()?
-        } else {
-            return Ok(HttpResponse::BadRequest().finish());
-        };
-
-        let mut sender = if let Some(conn) = data.endpoints.lock().unwrap().get(&path) {
-            conn.senders[worker_index].clone()
-        } else {
-            return Ok(HttpResponse::PreconditionFailed().finish());
-        };
-
-        let mut bytes = BytesMut::new();
-        while let Some(chunk) = body.next().await {
-            bytes.extend_from_slice(&(chunk.map_err(|e| anyhow!("payload error: {}", e))?));
-        }
-
-        sender
-            .send(Packet {
-                index: data_index,
-                data: bytes.freeze(),
-            })
-            .await?;
-
-        debug!("PUT {:?} ended", path);
-
-        Ok::<_, anyhow::Error>(HttpResponse::Ok().finish())
-    })()
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Error: {}", e);
-            HttpResponse::InternalServerError().finish()
-        }
+        return Ok(HttpResponse::Ok().finish());
     }
+
+    debug!("PUT {:?}", path);
+
+    let worker_index: usize = parse_from_header(&req, headers::WORKER)?;
+    let data_index = parse_from_header(&req, headers::INDEX)?;
+
+    let mut sender = if let Some(conn) = data.endpoints.lock().unwrap().get(&path) {
+        conn.senders[worker_index].clone()
+    } else {
+        return Err(ErrorPreconditionFailed("sender not available").into());
+    };
+
+    let mut bytes = BytesMut::new();
+    while let Some(chunk) = body.next().await {
+        bytes.extend_from_slice(&(chunk.map_err(|e| anyhow!("payload error: {}", e))?));
+    }
+
+    sender
+        .send(Packet {
+            index: data_index,
+            data: bytes.freeze(),
+        })
+        .await
+        .map_err(|_| anyhow!("failed to send packet to the channel"))?;
+
+    debug!("PUT {:?} ended", path);
+
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/{id}")]
@@ -142,57 +171,43 @@ async fn send(
     data: web::Data<AppState>,
     path: web::Path<String>,
     req: HttpRequest,
-) -> HttpResponse {
-    match (move || async move {
-        let path = path.into_inner();
+) -> ControllerResult<HttpResponse> {
+    let path = path.into_inner();
 
-        if let Some(_) = req.headers().get(headers::RESET) {
-            data.endpoints.lock().unwrap().remove(&path);
-            debug!("FIN {:?}", path);
-            return Ok(HttpResponse::Ok().finish());
-        }
-
-        debug!("GET {:?}", path);
-
-        let queue = if let Some(conn) = data.endpoints.lock().unwrap().get(&path) {
-            conn.queue.clone()
-        } else {
-            return Ok(HttpResponse::PreconditionFailed().finish());
-        };
-
-        if let Some(ack_num) = req.headers().get(headers::ACK) {
-            let ack_num = ack_num.to_str()?.parse()?;
-            queue.remove(ack_num);
-        }
-
-        let data_index = if let Some(data_index) = req.headers().get(headers::INDEX) {
-            data_index.to_str()?.parse()?
-        } else {
-            return Ok(HttpResponse::BadRequest().finish());
-        };
-
-        debug!("GET {:?} ended", path);
-
-        let data = if let Some(pkt) = queue.get(data_index).await {
-            pkt.data.clone()
-        } else {
-            return Ok(HttpResponse::Gone().finish());
-        };
-
-        Ok::<_, anyhow::Error>(HttpResponse::Ok().body(data))
-    })()
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Error: {}", e);
-            HttpResponse::InternalServerError().finish()
-        }
+    if let Some(_) = req.headers().get(headers::RESET) {
+        data.endpoints.lock().unwrap().remove(&path);
+        debug!("FIN {:?}", path);
+        return Ok(HttpResponse::Ok().finish());
     }
+
+    debug!("GET {:?}", path);
+
+    let queue = if let Some(conn) = data.endpoints.lock().unwrap().get(&path) {
+        conn.queue.clone()
+    } else {
+        return Err(ErrorPreconditionFailed("queue not available").into());
+    };
+
+    if let Some(ack_num) = req.headers().get(headers::ACK) {
+        let ack_num = ack_num.to_str()?.parse()?;
+        queue.remove(ack_num);
+    }
+
+    let data_index = parse_from_header(&req, headers::INDEX)?;
+
+    debug!("GET {:?} ended", path);
+
+    let data = if let Some(pkt) = queue.get(data_index).await {
+        pkt.data.clone()
+    } else {
+        return Err(ErrorGone("data not avaiable").into());
+    };
+
+    Ok(HttpResponse::Ok().body(data))
 }
 
 #[derive(Clap)]
-#[clap(version=crate_version!())]
+#[clap(version = crate_version ! ())]
 struct Opts {
     #[clap(long = "debug")]
     debug: bool,
