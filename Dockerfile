@@ -20,7 +20,7 @@ FROM debian:buster-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y tini libssl1.1 \
+    && apt-get install -y ca-certificates tini libssl1.1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build \
