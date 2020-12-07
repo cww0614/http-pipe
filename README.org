@@ -20,6 +20,9 @@ docker run -p 80:8080 cww0614/http-pipe
 *** Client
 
 #+BEGIN_SRC shell
+# Can also use docker:
+# alias http-pipe="docker run -it --rm cww0614/http-pipe"
+
 # Sending
 echo 123 | http-pipe http://example.com/endpoint
 
