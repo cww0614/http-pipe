@@ -1,10 +1,12 @@
-use futures::future;
-use http_pipe::common::Packet;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
 };
+
+use futures::future;
+
+use crate::common::Packet;
 
 pub struct Queue {
     q: Arc<Mutex<VecDeque<Option<Packet>>>>,

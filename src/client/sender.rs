@@ -1,13 +1,15 @@
+use std::time::Duration;
+
 use anyhow::bail;
 use bytes::BytesMut;
-use http_pipe::common::{headers, Packet};
 use log::debug;
 use reqwest::Client;
-use std::time::Duration;
 use tokio::{
     io::AsyncReadExt,
     sync::mpsc::{self, Receiver, Sender},
 };
+
+use crate::common::{headers, Packet};
 
 const WORKER_NUM: u64 = 4;
 const PACKET_SIZE: usize = 1 * 1024 * 1024;

@@ -19,8 +19,14 @@ FROM debian:buster-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y tini libssl1.1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build \
-     /app/target/release/http-pipe-server \
+     /app/target/release/http-pipe \
      /app/
 
-CMD ["/app/http-pipe-server", "0.0.0.0:8080"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/http-pipe"]
+
+CMD ["--server", "0.0.0.0:8080"]

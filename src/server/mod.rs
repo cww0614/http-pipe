@@ -1,22 +1,22 @@
+use std::str::FromStr;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use std::str::FromStr;
 
-use actix_web::{App, get, HttpRequest, HttpResponse, HttpServer, put, web};
 use actix_web::error::{
     ErrorBadRequest, ErrorGone, ErrorInternalServerError, ErrorPreconditionFailed,
 };
+use actix_web::{get, put, web, App, HttpRequest, HttpResponse, HttpServer};
 use anyhow::anyhow;
 use bytes::BytesMut;
-use clap::{Clap, crate_version};
 use futures::stream::StreamExt;
 use log::debug;
 use tokio::sync::mpsc::{self, Sender};
 
-use http_pipe::common::{headers, Packet};
 use queue::Queue;
+
+use crate::common::{headers, Packet};
 
 mod queue;
 
@@ -105,9 +105,9 @@ impl Conn {
 }
 
 fn parse_from_header<T>(req: &HttpRequest, name: &str) -> ControllerResult<T>
-    where
-        T: FromStr,
-        ControllerError: From<T::Err>,
+where
+    T: FromStr,
+    ControllerError: From<T::Err>,
 {
     Ok(req
         .headers()
@@ -206,20 +206,7 @@ async fn send(
     Ok(HttpResponse::Ok().body(data))
 }
 
-#[derive(Clap)]
-#[clap(version = crate_version ! ())]
-struct Opts {
-    #[clap(long = "debug")]
-    debug: bool,
-    addr: String,
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let opts: Opts = Opts::parse();
-
-    http_pipe::common::init_log(opts.debug);
-
+pub async fn main(addr: String) -> anyhow::Result<()> {
     let local = tokio::task::LocalSet::new();
     let sys = actix_rt::System::run_in_tokio("server", &local);
 
@@ -233,7 +220,7 @@ async fn main() -> anyhow::Result<()> {
             .service(recv)
             .service(send)
     })
-    .bind(&opts.addr)?
+    .bind(&addr)?
     .run()
     .await?;
 

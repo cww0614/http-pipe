@@ -1,13 +1,15 @@
+use std::time::Duration;
+
 use anyhow::bail;
 use bytes::Bytes;
-use http_pipe::common::headers;
 use log::debug;
 use reqwest::Client;
-use std::time::Duration;
 use tokio::{
     io::AsyncWriteExt,
     sync::mpsc::{self, Receiver, Sender},
 };
+
+use crate::common::headers;
 
 const WORKER_NUM: u64 = 4;
 
