@@ -1,7 +1,10 @@
 [package]
 name = "http-pipe"
 version = "0.2.0"
-authors = ["chrisww <chrisww@live.com>"]
+authors = ["Yifei Wang <yifei529@gmail.com>"]
+license-file = "LICENSE"
+description = "Piping data from one host to another using a relay server"
+repository = "https://github.com/cww0614/http-pipe/"
 edition = "2018"
 
 [profile.release]
@@ -16,7 +19,7 @@ atty = "0.2"
 anyhow = "1.0"
 log = "0.4"
 simplelog = "0.8"
-pin-project = "*"
+pin-project = "1.0"
 bytes = "0.5"
 futures = "0.3"
 clap = "3.0.0-beta.1"
